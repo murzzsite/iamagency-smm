@@ -1,11 +1,12 @@
 (() => {
-  // Year
+  const LEAD_ENDPOINT = 'https://lead-relay.leestygpt.workers.dev/lead/3HT2R4ZB8K';
+
   const yearEl = document.getElementById('year');
   if (yearEl) yearEl.textContent = new Date().getFullYear();
 
   // Sticky header
   const header = document.getElementById('header');
-  const onScroll = () => header.classList.toggle('scrolled', window.scrollY > 8);
+  const onScroll = () => header?.classList.toggle('scrolled', window.scrollY > 8);
   window.addEventListener('scroll', onScroll, { passive: true });
   onScroll();
 
@@ -21,7 +22,7 @@
     nav.classList.remove('is-open');
   }));
 
-  // Phone mask +7 (___) ___-__-__
+  // Phone mask
   document.querySelectorAll('input[type="tel"]').forEach(input => {
     input.addEventListener('input', e => {
       let v = e.target.value.replace(/\D/g, '');
@@ -37,30 +38,45 @@
     });
   });
 
-  // Form → Telegram/WhatsApp
-  // ПЕРЕД ДЕПЛОЕМ замени CLIENT_CHANNEL_URL на реальный endpoint:
-  //   WhatsApp:  https://wa.me/PHONE
-  //   Telegram:  https://t.me/USERNAME
+  // Form → Cloudflare Worker → Telegram
   const form = document.getElementById('leadForm');
-  form?.addEventListener('submit', e => {
+  form?.addEventListener('submit', async e => {
     e.preventDefault();
-    const data = new FormData(form);
-    const name = data.get('name')?.toString().trim();
-    const phone = data.get('phone')?.toString().trim() || data.get('contact')?.toString().trim();
-    if (!name || !phone) { alert('Заполните имя и контакт'); return; }
-    const lines = [`Заявка с сайта.`, `Имя: ${name}`, `Контакт: ${phone}`];
-    ['object','area','address','comment','budget','time','topic'].forEach(k => {
-      const v = data.get(k); if (v) lines.push(`${k}: ${v}`);
-    });
-    const url = `CLIENT_CHANNEL_URL?text=${encodeURIComponent(lines.join('\n'))}`;
-    window.open(url, '_blank');
     const btn = form.querySelector('button[type="submit"]');
     const orig = btn.textContent;
-    btn.textContent = 'Заявка отправлена ✓'; btn.disabled = true;
-    setTimeout(() => { btn.textContent = orig; btn.disabled = false; form.reset(); }, 2500);
+
+    const fd = new FormData(form);
+    const payload = {};
+    fd.forEach((v, k) => { payload[k] = v; });
+
+    if (payload._gotcha) return;
+
+    if (!payload.name || (!payload.phone && !payload.contact)) {
+      alert('Заполните имя и контактные данные');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Отправляем...';
+
+    try {
+      const resp = await fetch(LEAD_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      btn.textContent = 'Заявка отправлена ✓';
+      form.reset();
+    } catch (err) {
+      console.error(err);
+      btn.textContent = 'Ошибка, попробуйте ещё раз';
+    } finally {
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+    }
   });
 
-  // Smooth scroll with header offset
+  // Smooth scroll
   document.querySelectorAll('a[href^="#"]').forEach(a => {
     a.addEventListener('click', e => {
       const href = a.getAttribute('href');
@@ -89,8 +105,8 @@
       const el = e.target;
       const target = parseInt(el.dataset.target, 10);
       if (Number.isNaN(target)) return;
-      const dur = 1100; const start = performance.now();
-      const tick = (t) => {
+      const dur = 1100, start = performance.now();
+      const tick = t => {
         const p = Math.min(1, (t - start) / dur);
         el.textContent = Math.round(target * (1 - Math.pow(1 - p, 3)));
         if (p < 1) requestAnimationFrame(tick);
